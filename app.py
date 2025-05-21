@@ -1,33 +1,44 @@
 from flask import Flask, request, jsonify
-from classifier import classify_lead
-from crm_client import edit_order_custom_field, get_order_by_id
-from logger import setup_logger
+from dotenv import load_dotenv
 import logging
-from config import RETAILCRM_API_KEY as API_KEY, RETAILCRM_API_URL as BASE_URL
+import os
 
+from classifier import classify_lead
+from crm_client import edit_order_custom_field
 
-setup_logger()
+# Загрузка переменных окружения
+load_dotenv()
+
+# Логирование
+logging.basicConfig(
+    filename='logs/app.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 app = Flask(__name__)
 
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
+@app.route('/classify', methods=['POST'])
+def classify():
     data = request.json
-    logging.info(f"Received data: {data}")
+    logging.info(f'Получен запрос: {data}')
 
     classification = classify_lead(data)
-    logging.info(f"Calculated classification: {classification}")
+    logging.info(f'Результат классификации: {classification}')
 
-    if classification == 'Unknown':
-        return jsonify({'status': 'error', 'message': 'Invalid data'}), 400
+    order_id = data.get('id')
+    if not order_id:
+        logging.warning("ID заказа не передан в запросе.")
+        return jsonify({'error': 'order_id not provided'}), 400
 
-    entity_id = data.get('id')
-    success = classify_lead(entity_id, classification)
+    success = edit_order_custom_field(order_id, 'classification', classification)
 
-    if not success:
-        return jsonify({'status': 'error', 'message': 'Failed to update CRM'}), 500
-
-    return jsonify({'status': 'ok', 'classification': classification}), 200
+    return jsonify({
+        'order_id': order_id,
+        'classification': classification,
+        'updated': success
+    })
 
 
 if __name__ == '__main__':
